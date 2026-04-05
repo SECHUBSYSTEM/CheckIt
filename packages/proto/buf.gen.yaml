@@ -1,0 +1,13 @@
+# https://buf.build/docs/configuration/v2/buf-gen-yaml
+version: v2
+clean: true
+plugins:
+  - remote: buf.build/community/stephenh-ts-proto:v2.11.6
+    out: src/generated
+    opt:
+      - outputServices=grpc-js
+      - esModuleInterop=true
+      - useExactTypes=false
+      - exportCommonSymbols=false
+inputs:
+  - directory: proto

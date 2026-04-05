@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package wallet.v1;
+
+// Wallet balances in minor units (e.g. cents). All amounts are integers.
+
+service WalletService {
+  rpc CreateWallet(CreateWalletRequest) returns (CreateWalletResponse);
+  rpc GetWallet(GetWalletRequest) returns (GetWalletResponse);
+  rpc CreditWallet(CreditWalletRequest) returns (CreditWalletResponse);
+  rpc DebitWallet(DebitWalletRequest) returns (DebitWalletResponse);
+}
+
+message Wallet {
+  string id = 1;
+  string user_id = 2;
+  int64 balance_minor_units = 3;
+  int64 created_at_unix_ms = 4;
+}
+
+message CreateWalletRequest {
+  string user_id = 1;
+  string idempotency_key = 2;
+}
+
+message CreateWalletResponse {
+  Wallet wallet = 1;
+}
+
+message GetWalletRequest {
+  string user_id = 1;
+}
+
+message GetWalletResponse {
+  Wallet wallet = 1;
+}
+
+message CreditWalletRequest {
+  string user_id = 1;
+  int64 amount_minor_units = 2;
+  string idempotency_key = 3;
+}
+
+message CreditWalletResponse {
+  Wallet wallet = 1;
+}
+
+message DebitWalletRequest {
+  string user_id = 1;
+  int64 amount_minor_units = 2;
+  string idempotency_key = 3;
+}
+
+message DebitWalletResponse {
+  Wallet wallet = 1;
+}

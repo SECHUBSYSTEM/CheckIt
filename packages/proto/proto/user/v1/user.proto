@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package user.v1;
+
+// User lifecycle and lookup.
+
+service UserService {
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse);
+  rpc GetUserById(GetUserByIdRequest) returns (GetUserByIdResponse);
+}
+
+message User {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+  // Milliseconds since Unix epoch (UTC). Avoids well-known proto imports in tooling.
+  int64 created_at_unix_ms = 4;
+}
+
+message CreateUserRequest {
+  string email = 1;
+  string name = 2;
+}
+
+message CreateUserResponse {
+  User user = 1;
+}
+
+message GetUserByIdRequest {
+  string user_id = 1;
+}
+
+message GetUserByIdResponse {
+  User user = 1;
+}
