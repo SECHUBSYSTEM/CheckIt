@@ -97,3 +97,36 @@ On PowerShell, escape JSON differently, for example:
 ```powershell
 grpcurl -plaintext -import-path "$PWD\packages\proto\proto" -proto user/v1/user.proto -d '{"email":"alice@example.com","name":"Alice"}' localhost:50051 user.v1.UserService/CreateUser
 ```
+
+## Smoke test (grpcurl)
+
+With **wallet** and **user** services running and [grpcurl](https://github.com/fullstorydev/grpcurl) on your `PATH`:
+
+```bash
+pnpm smoke
+```
+
+This creates a user, hits all wallet RPCs, and asserts a final balance of **400** minor units (after +500 and −100 credits). Override addresses with `USER_GRPC_ADDR` and `WALLET_GRPC_ADDR` if needed.
+
+## Postman (gRPC)
+
+Postman can call gRPC directly:
+
+1. Import the environment `postman/CheckIt.postman_environment.json` (variables `userGrpc`, `walletGrpc`).
+2. New request → **gRPC** → server `{{userGrpc}}` or `{{walletGrpc}}`.
+3. **Import** → select `packages/proto/proto/user/v1/user.proto` or `wallet/v1/wallet.proto`.
+4. Choose the service method (for example `user.v1.UserService` / `CreateUser`) and send a JSON body matching the message (camelCase field names).
+
+## Assessment checklist
+
+| Item | Location / notes |
+|------|------------------|
+| Monorepo layout | `apps/user-service`, `apps/wallet-service`, `packages/proto`, `packages/prisma-user`, `packages/prisma-wallet` |
+| User gRPC | `CreateUser`, `GetUserById` |
+| Wallet gRPC | `CreateWallet`, `GetWallet`, `CreditWallet`, `DebitWallet` |
+| Cross-service calls | Wallet → `GetUserById` before wallet create; User → `CreateWallet` after user create |
+| PostgreSQL + Prisma | Two DBs via Docker; migrations under each `prisma/migrations` |
+| Idempotency + transactions | `processed_wallet_requests`; `SERIALIZABLE` + conditional debit |
+| Validation | `class-validator` on user create |
+| Logging | `nestjs-pino` in both apps |
+| Example requests | `grpcurl` blocks above; `pnpm smoke`; Postman env + proto import |

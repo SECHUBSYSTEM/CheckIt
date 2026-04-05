@@ -19,6 +19,7 @@
     "migrate:deploy": "node scripts/migrate-deploy.mjs",
     "prisma:generate": "node scripts/prisma-generate.mjs",
     "dev:wallet": "pnpm --filter @apps/wallet-service start:dev",
-    "dev:user": "pnpm --filter @apps/user-service start:dev"
+    "dev:user": "pnpm --filter @apps/user-service start:dev",
+    "smoke": "node scripts/smoke.mjs"
   }
 }
