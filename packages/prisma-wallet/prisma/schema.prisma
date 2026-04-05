@@ -1,0 +1,38 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// One wallet per user. userId matches User.id in the user service database (no cross-DB FK).
+model Wallet {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @map("user_id") @db.Uuid
+  balance   BigInt   @default(0) @map("balance_minor_units")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  processedRequests ProcessedWalletRequest[]
+
+  @@map("wallets")
+}
+
+/// Idempotency for CreateWallet, CreditWallet, and DebitWallet (key is per user + operation kind).
+model ProcessedWalletRequest {
+  id                     String   @id @default(uuid()) @db.Uuid
+  userId                 String   @map("user_id") @db.Uuid
+  idempotencyKey         String   @map("idempotency_key")
+  kind                   String   @db.VarChar(32)
+  walletId               String?  @map("wallet_id") @db.Uuid
+  amountMinorUnits       BigInt?  @map("amount_minor_units")
+  balanceAfterMinorUnits BigInt?  @map("balance_after_minor_units")
+  createdAt              DateTime @default(now()) @map("created_at")
+
+  wallet Wallet? @relation(fields: [walletId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, idempotencyKey, kind])
+  @@map("processed_wallet_requests")
+}

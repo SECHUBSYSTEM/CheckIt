@@ -1,4 +1,6 @@
 node_modules
+packages/prisma-user/src/generated/
+packages/prisma-wallet/src/generated/
 dist
 build
 .env

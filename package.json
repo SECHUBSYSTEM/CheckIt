@@ -8,6 +8,12 @@
   "scripts": {
     "build": "pnpm -r run build",
     "lint": "pnpm -r run lint",
-    "proto:generate": "pnpm --filter @packages/proto generate"
+    "proto:generate": "pnpm --filter @packages/proto generate",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "migrate:user": "pnpm --filter @packages/prisma-user migrate:dev",
+    "migrate:wallet": "pnpm --filter @packages/prisma-wallet migrate:dev",
+    "migrate:deploy": "pnpm --filter @packages/prisma-user migrate:deploy && pnpm --filter @packages/prisma-wallet migrate:deploy",
+    "prisma:generate": "pnpm --filter @packages/prisma-user generate && pnpm --filter @packages/prisma-wallet generate"
   }
 }
