@@ -1,0 +1,185 @@
+{
+  "info": {
+    "_postman_id": "checkit-grpc-collection",
+    "name": "CheckIt gRPC",
+    "description": "Complete set of **all gRPC RPCs** exposed by this repo (there are no REST HTTP routes).\n\n| # | Service | Method | Server variable |\n|---|---------|--------|-----------------|\n| 1 | user.v1.UserService | **CreateUser** | `{{user_grpc_url}}` |\n| 2 | user.v1.UserService | **GetUserById** | `{{user_grpc_url}}` |\n| 3 | wallet.v1.WalletService | **CreateWallet** | `{{wallet_grpc_url}}` |\n| 4 | wallet.v1.WalletService | **GetWallet** | `{{wallet_grpc_url}}` |\n| 5 | wallet.v1.WalletService | **CreditWallet** | `{{wallet_grpc_url}}` |\n| 6 | wallet.v1.WalletService | **DebitWallet** | `{{wallet_grpc_url}}` |\n\n**Setup:** Import protos from `packages/proto/proto` (add that folder as a **proto import path**, then select `user/v1/user.proto` for user requests and `wallet/v1/wallet.proto` for wallet requests—or your Postman version’s equivalent). Use **plaintext** gRPC (no TLS) for local dev.\n\n**Flow:** Start **wallet** then **user** (`pnpm dev:wallet`, `pnpm dev:user`). Select the **CheckIt local** environment. Run **CreateUser** first; its **Tests** script saves `user.id` into `user_id` (environment + collection). Then run the rest in any order; wallet calls need `user_id` set.\n\n**Note:** CreateUser uses a unique email per run (`postman-{{$timestamp}}@example.com`) so you are less likely to hit `ALREADY_EXISTS` when re-running.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "user_grpc_url",
+      "value": "grpc://localhost:50051"
+    },
+    {
+      "key": "wallet_grpc_url",
+      "value": "grpc://localhost:50052"
+    },
+    {
+      "key": "user_id",
+      "value": ""
+    },
+    {
+      "key": "proto_import_path",
+      "value": "packages/proto/proto",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "UserService (user_grpc_url)",
+      "description": "Protobuf: `packages/proto/proto/user/v1/user.proto`. Service `user.v1.UserService`.",
+      "item": [
+        {
+          "name": "1. CreateUser",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function parseBody() {",
+                  "  try { return pm.response.json(); } catch (e1) {}",
+                  "  try { return JSON.parse(pm.response.text()); } catch (e2) {}",
+                  "  return null;",
+                  "}",
+                  "const body = parseBody();",
+                  "if (body && body.user && body.user.id) {",
+                  "  const id = body.user.id;",
+                  "  pm.environment.set('user_id', id);",
+                  "  pm.collectionVariables.set('user_id', id);",
+                  "  console.log('Saved user_id to environment + collection:', id);",
+                  "} else {",
+                  "  console.warn('No user.id in response; set user_id manually for wallet calls.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "grpc",
+              "grpc": {
+                "service": "user.v1.UserService",
+                "method": "CreateUser",
+                "message": "{\n  \"email\": \"postman-{{$timestamp}}@example.com\",\n  \"name\": \"Postman User\"\n}"
+              }
+            },
+            "url": {
+              "raw": "{{user_grpc_url}}"
+            },
+            "description": "Creates a user; **Tests** tab saves `user.id` into `user_id`."
+          },
+          "response": []
+        },
+        {
+          "name": "2. GetUserById",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "grpc",
+              "grpc": {
+                "service": "user.v1.UserService",
+                "method": "GetUserById",
+                "message": "{\n  \"userId\": \"{{user_id}}\"\n}"
+              }
+            },
+            "url": {
+              "raw": "{{user_grpc_url}}"
+            },
+            "description": "Requires `user_id` (run CreateUser first or paste a UUID)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "WalletService (wallet_grpc_url)",
+      "description": "Protobuf: `packages/proto/proto/wallet/v1/wallet.proto`. Service `wallet.v1.WalletService`. User must exist (wallet service calls user service on CreateWallet).",
+      "item": [
+        {
+          "name": "3. CreateWallet",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "grpc",
+              "grpc": {
+                "service": "wallet.v1.WalletService",
+                "method": "CreateWallet",
+                "message": "{\n  \"userId\": \"{{user_id}}\",\n  \"idempotencyKey\": \"postman-create-1\"\n}"
+              }
+            },
+            "url": {
+              "raw": "{{wallet_grpc_url}}"
+            },
+            "description": "Idempotent per `(userId, idempotencyKey)`. Change `idempotencyKey` for a second distinct create attempt."
+          },
+          "response": []
+        },
+        {
+          "name": "4. GetWallet",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "grpc",
+              "grpc": {
+                "service": "wallet.v1.WalletService",
+                "method": "GetWallet",
+                "message": "{\n  \"userId\": \"{{user_id}}\"\n}"
+              }
+            },
+            "url": {
+              "raw": "{{wallet_grpc_url}}"
+            },
+            "description": "Returns balance in minor units."
+          },
+          "response": []
+        },
+        {
+          "name": "5. CreditWallet",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "grpc",
+              "grpc": {
+                "service": "wallet.v1.WalletService",
+                "method": "CreditWallet",
+                "message": "{\n  \"userId\": \"{{user_id}}\",\n  \"amountMinorUnits\": 1000,\n  \"idempotencyKey\": \"postman-credit-1\"\n}"
+              }
+            },
+            "url": {
+              "raw": "{{wallet_grpc_url}}"
+            },
+            "description": "Credits minor units. Same `idempotencyKey` + amount replays safely."
+          },
+          "response": []
+        },
+        {
+          "name": "6. DebitWallet",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "grpc",
+              "grpc": {
+                "service": "wallet.v1.WalletService",
+                "method": "DebitWallet",
+                "message": "{\n  \"userId\": \"{{user_id}}\",\n  \"amountMinorUnits\": 250,\n  \"idempotencyKey\": \"postman-debit-1\"\n}"
+              }
+            },
+            "url": {
+              "raw": "{{wallet_grpc_url}}"
+            },
+            "description": "Debits if balance sufficient; otherwise FAILED_PRECONDITION."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

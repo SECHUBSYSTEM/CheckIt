@@ -64,7 +64,24 @@ export class UserService {
           message: "Email already registered",
         });
       }
-      throw e;
+      if (e instanceof Prisma.PrismaClientKnownRequestError) {
+        this.logger.error(
+          `Prisma error creating user: ${e.code}`,
+          e.message,
+        );
+        throw new RpcException({
+          code: status.INTERNAL,
+          message: "Could not create user",
+        });
+      }
+      this.logger.error(
+        "Unexpected error creating user",
+        e instanceof Error ? e.stack : String(e),
+      );
+      throw new RpcException({
+        code: status.INTERNAL,
+        message: "Could not create user",
+      });
     }
 
     try {

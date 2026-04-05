@@ -63,6 +63,10 @@ export class WalletService {
     return k;
   }
 
+  /**
+   * Rejects missing, non-finite, non-integer, non-positive, and unsafe-magnitude amounts
+   * so gRPC always returns RpcException instead of a raw JS throw from BigInt.
+   */
   private parsePositiveMinorUnits(value: number | undefined): bigint {
     if (value === undefined || value === null) {
       throw new RpcException({
@@ -70,14 +74,103 @@ export class WalletService {
         message: "amount_minor_units is required",
       });
     }
-    const n = BigInt(Math.trunc(value));
-    if (n <= 0n) {
+    if (typeof value !== "number" || Number.isNaN(value) || !Number.isFinite(value)) {
+      throw new RpcException({
+        code: status.INVALID_ARGUMENT,
+        message: "amount_minor_units must be a finite number",
+      });
+    }
+    if (value <= 0 || !Number.isInteger(value)) {
       throw new RpcException({
         code: status.INVALID_ARGUMENT,
         message: "amount_minor_units must be a positive integer",
       });
     }
-    return n;
+    if (value > Number.MAX_SAFE_INTEGER) {
+      throw new RpcException({
+        code: status.OUT_OF_RANGE,
+        message: "amount_minor_units exceeds safe range for this API",
+      });
+    }
+    return BigInt(value);
+  }
+
+  /** Maps unexpected errors to gRPC-friendly failures (never returns). */
+  private throwMappedError(e: unknown): never {
+    if (e instanceof RpcException) {
+      throw e;
+    }
+    if (e instanceof Prisma.PrismaClientKnownRequestError) {
+      if (e.code === "P2025") {
+        throw new RpcException({
+          code: status.NOT_FOUND,
+          message: "Record not found",
+        });
+      }
+      if (e.code === "P2002") {
+        throw new RpcException({
+          code: status.ABORTED,
+          message: "Write conflict; retry the request",
+        });
+      }
+      throw new RpcException({
+        code: status.INTERNAL,
+        message: "Database error",
+      });
+    }
+    if (e instanceof Error) {
+      throw new RpcException({
+        code: status.INTERNAL,
+        message: e.message || "Unexpected error",
+      });
+    }
+    throw new RpcException({
+      code: status.UNKNOWN,
+      message: "Unexpected error",
+    });
+  }
+
+  /**
+   * If two requests share the same idempotency key and both pass the in-txn duplicate check,
+   * the second can hit P2002 on processed_wallet_requests insert. Re-read committed state.
+   */
+  private async recoverWalletMutationAfterIdempotencyP2002(
+    userId: string,
+    idempotencyKey: string,
+    kind: string,
+    expectedAmount: bigint,
+  ): Promise<ProtoWallet> {
+    const row = await this.prisma.processedWalletRequest.findUnique({
+      where: {
+        userId_idempotencyKey_kind: { userId, idempotencyKey, kind },
+      },
+    });
+    if (!row) {
+      throw new RpcException({
+        code: status.ABORTED,
+        message: "Write conflict; retry the same request",
+      });
+    }
+    if (
+      row.amountMinorUnits == null ||
+      row.amountMinorUnits !== expectedAmount
+    ) {
+      throw new RpcException({
+        code: status.INVALID_ARGUMENT,
+        message:
+          "Idempotency key already used with a different amount_minor_units",
+      });
+    }
+    const w = await this.prisma.wallet.findUnique({
+      where: { userId },
+    });
+    if (!w) {
+      throw new RpcException({
+        code: status.NOT_FOUND,
+        message: "Wallet not found",
+      });
+    }
+    return this.mapWallet(w);
   }
 
   async createWallet(data: CreateWalletRequest): Promise<CreateWalletResponse> {
@@ -158,7 +251,7 @@ export class WalletService {
           return { wallet: this.mapWallet(w) };
         }
       }
-      throw e;
+      this.throwMappedError(e);
     }
   }
 
@@ -191,69 +284,86 @@ export class WalletService {
     }
     const amount = this.parsePositiveMinorUnits(data.amountMinorUnits);
 
-    return this.prisma.$transaction(
-      async (tx) => {
-        const existing = await tx.processedWalletRequest.findUnique({
-          where: {
-            userId_idempotencyKey_kind: {
-              userId: data.userId,
-              idempotencyKey,
-              kind: KIND_CREDIT,
+    try {
+      const result = await this.prisma.$transaction(
+        async (tx) => {
+          const existing = await tx.processedWalletRequest.findUnique({
+            where: {
+              userId_idempotencyKey_kind: {
+                userId: data.userId,
+                idempotencyKey,
+                kind: KIND_CREDIT,
+              },
             },
-          },
-        });
-        if (existing) {
-          if (existing.amountMinorUnits !== amount) {
-            throw new RpcException({
-              code: status.INVALID_ARGUMENT,
-              message:
-                "Idempotency key already used with a different amount_minor_units",
+          });
+          if (existing) {
+            if (existing.amountMinorUnits !== amount) {
+              throw new RpcException({
+                code: status.INVALID_ARGUMENT,
+                message:
+                  "Idempotency key already used with a different amount_minor_units",
+              });
+            }
+            const w = await tx.wallet.findUnique({
+              where: { userId: data.userId },
             });
+            if (!w) {
+              throw new RpcException({
+                code: status.NOT_FOUND,
+                message: "Wallet not found",
+              });
+            }
+            return { wallet: this.mapWallet(w) };
           }
-          const w = await tx.wallet.findUnique({
+
+          const wallet = await tx.wallet.findUnique({
             where: { userId: data.userId },
           });
-          if (!w) {
+          if (!wallet) {
             throw new RpcException({
               code: status.NOT_FOUND,
               message: "Wallet not found",
             });
           }
-          return { wallet: this.mapWallet(w) };
-        }
 
-        const wallet = await tx.wallet.findUnique({
-          where: { userId: data.userId },
-        });
-        if (!wallet) {
-          throw new RpcException({
-            code: status.NOT_FOUND,
-            message: "Wallet not found",
+          const updated = await tx.wallet.update({
+            where: { id: wallet.id },
+            data: { balance: { increment: amount } },
           });
-        }
 
-        const updated = await tx.wallet.update({
-          where: { id: wallet.id },
-          data: { balance: { increment: amount } },
-        });
+          await tx.processedWalletRequest.create({
+            data: {
+              userId: data.userId,
+              idempotencyKey,
+              kind: KIND_CREDIT,
+              walletId: wallet.id,
+              amountMinorUnits: amount,
+              balanceAfterMinorUnits: updated.balance,
+            },
+          });
 
-        await tx.processedWalletRequest.create({
-          data: {
-            userId: data.userId,
-            idempotencyKey,
-            kind: KIND_CREDIT,
-            walletId: wallet.id,
-            amountMinorUnits: amount,
-            balanceAfterMinorUnits: updated.balance,
-          },
-        });
-
-        return { wallet: this.mapWallet(updated) };
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+          return { wallet: this.mapWallet(updated) };
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        },
+      );
+      return result;
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2002"
+      ) {
+        const wallet = await this.recoverWalletMutationAfterIdempotencyP2002(
+          data.userId,
+          idempotencyKey,
+          KIND_CREDIT,
+          amount,
+        );
+        return { wallet };
+      }
+      this.throwMappedError(e);
+    }
   }
 
   async debitWallet(data: DebitWalletRequest): Promise<DebitWalletResponse> {
@@ -266,79 +376,98 @@ export class WalletService {
     }
     const amount = this.parsePositiveMinorUnits(data.amountMinorUnits);
 
-    return this.prisma.$transaction(
-      async (tx) => {
-        const existing = await tx.processedWalletRequest.findUnique({
-          where: {
-            userId_idempotencyKey_kind: {
-              userId: data.userId,
-              idempotencyKey,
-              kind: KIND_DEBIT,
+    try {
+      const result = await this.prisma.$transaction(
+        async (tx) => {
+          const existing = await tx.processedWalletRequest.findUnique({
+            where: {
+              userId_idempotencyKey_kind: {
+                userId: data.userId,
+                idempotencyKey,
+                kind: KIND_DEBIT,
+              },
             },
-          },
-        });
-        if (existing) {
-          if (existing.amountMinorUnits !== amount) {
-            throw new RpcException({
-              code: status.INVALID_ARGUMENT,
-              message:
-                "Idempotency key already used with a different amount_minor_units",
+          });
+          if (existing) {
+            if (existing.amountMinorUnits !== amount) {
+              throw new RpcException({
+                code: status.INVALID_ARGUMENT,
+                message:
+                  "Idempotency key already used with a different amount_minor_units",
+              });
+            }
+            const w = await tx.wallet.findUnique({
+              where: { userId: data.userId },
             });
+            if (!w) {
+              throw new RpcException({
+                code: status.NOT_FOUND,
+                message: "Wallet not found",
+              });
+            }
+            return { wallet: this.mapWallet(w) };
           }
-          const w = await tx.wallet.findUnique({
+
+          const wallet = await tx.wallet.findUnique({
             where: { userId: data.userId },
           });
-          if (!w) {
+          if (!wallet) {
             throw new RpcException({
               code: status.NOT_FOUND,
               message: "Wallet not found",
             });
           }
-          return { wallet: this.mapWallet(w) };
-        }
 
-        const wallet = await tx.wallet.findUnique({
-          where: { userId: data.userId },
-        });
-        if (!wallet) {
-          throw new RpcException({
-            code: status.NOT_FOUND,
-            message: "Wallet not found",
+          // Single conditional UPDATE: atomic under this SERIALIZABLE transaction.
+          // Rows updated only if balance >= amount, so concurrent debits cannot overdraw.
+          const debited = await tx.wallet.updateMany({
+            where: { id: wallet.id, balance: { gte: amount } },
+            data: { balance: { decrement: amount } },
           });
-        }
 
-        const debited = await tx.wallet.updateMany({
-          where: { id: wallet.id, balance: { gte: amount } },
-          data: { balance: { decrement: amount } },
-        });
+          if (debited.count === 0) {
+            throw new RpcException({
+              code: status.FAILED_PRECONDITION,
+              message: "Insufficient balance",
+            });
+          }
 
-        if (debited.count === 0) {
-          throw new RpcException({
-            code: status.FAILED_PRECONDITION,
-            message: "Insufficient balance",
+          const updated = await tx.wallet.findUniqueOrThrow({
+            where: { id: wallet.id },
           });
-        }
 
-        const updated = await tx.wallet.findUniqueOrThrow({
-          where: { id: wallet.id },
-        });
+          await tx.processedWalletRequest.create({
+            data: {
+              userId: data.userId,
+              idempotencyKey,
+              kind: KIND_DEBIT,
+              walletId: wallet.id,
+              amountMinorUnits: amount,
+              balanceAfterMinorUnits: updated.balance,
+            },
+          });
 
-        await tx.processedWalletRequest.create({
-          data: {
-            userId: data.userId,
-            idempotencyKey,
-            kind: KIND_DEBIT,
-            walletId: wallet.id,
-            amountMinorUnits: amount,
-            balanceAfterMinorUnits: updated.balance,
-          },
-        });
-
-        return { wallet: this.mapWallet(updated) };
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+          return { wallet: this.mapWallet(updated) };
+        },
+        {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        },
+      );
+      return result;
+    } catch (e) {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === "P2002"
+      ) {
+        const wallet = await this.recoverWalletMutationAfterIdempotencyP2002(
+          data.userId,
+          idempotencyKey,
+          KIND_DEBIT,
+          amount,
+        );
+        return { wallet };
+      }
+      this.throwMappedError(e);
+    }
   }
 }
