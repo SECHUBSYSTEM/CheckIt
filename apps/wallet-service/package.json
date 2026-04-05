@@ -1,0 +1,9 @@
+{
+  "name": "@apps/wallet-service",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "echo \"not implemented\"",
+    "lint": "echo \"not implemented\""
+  }
+}

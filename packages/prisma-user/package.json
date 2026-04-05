@@ -1,0 +1,8 @@
+{
+  "name": "@packages/prisma-user",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "echo \"not implemented\""
+  }
+}

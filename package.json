@@ -1,0 +1,12 @@
+{
+  "name": "backend-assessment",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r run build",
+    "lint": "pnpm -r run lint"
+  }
+}
