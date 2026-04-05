@@ -23,18 +23,24 @@ pnpm proto:generate
 PostgreSQL runs via Docker (two databases: `users`, `wallets`). The compose file maps **host port 5433** to Postgres 5432 so it does not clash with a local PostgreSQL on 5432.
 
 ```bash
-cp .env.example .env
+cp .env.example .env   # optional: overrides default local URLs below
 pnpm db:up
 ```
 
-Apply migrations (from repo root, with `DATABASE_URL` set for each package — copy each package `.env.example` into `packages/prisma-user/.env` and `packages/prisma-wallet/.env`, or export `DATABASE_URL` before running):
+Apply migrations from the **repo root**. Scripts inject `DATABASE_URL` per package from `DATABASE_URL_USER` and `DATABASE_URL_WALLET` in `.env`. If those are unset, the defaults match Docker Compose (`localhost:5433`).
+
+```bash
+pnpm migrate:deploy
+```
+
+Interactive migrations (dev):
 
 ```bash
 pnpm migrate:user
 pnpm migrate:wallet
 ```
 
-Generate Prisma clients (each package writes to its own `src/generated/client`; run both):
+Generate Prisma clients (each package writes to its own `src/generated/client`):
 
 ```bash
 pnpm prisma:generate
@@ -46,10 +52,4 @@ This repo uses **Prisma ORM 6.19.3**. **Prisma ORM 7** currently supports Node.j
 
 ### Migrations
 
-Production-style apply (no prompts):
-
-```bash
-pnpm migrate:deploy
-```
-
-Or per package: `pnpm --filter @packages/prisma-user exec prisma migrate dev` and `pnpm --filter @packages/prisma-wallet exec prisma migrate dev`.
+`pnpm migrate:deploy` runs `scripts/migrate-deploy.mjs`, which sets `DATABASE_URL` for each Prisma package. To run Prisma CLI directly inside a package, create that package’s `.env` with a single `DATABASE_URL` (see each package’s `.env.example`).
