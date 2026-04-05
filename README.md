@@ -1,8 +1,9 @@
 # Backend assessment: user and wallet services
 
-NestJS microservices (gRPC), Prisma, PostgreSQL, monorepo.
+NestJS gRPC microservices, Prisma, PostgreSQL, pnpm monorepo.
 
-Setup and run instructions will be added as the services are implemented.
+- **User service** (`apps/user-service`): `CreateUser`, `GetUserById`; creates a wallet via the wallet service after each new user.
+- **Wallet service** (`apps/wallet-service`): `CreateWallet`, `GetWallet`, `CreditWallet`, `DebitWallet`; verifies users with `GetUserById` before wallet creation; idempotency and `SERIALIZABLE` transactions on mutations.
 
 ## Requirements
 
@@ -53,3 +54,46 @@ This repo uses **Prisma ORM 6.19.3**. **Prisma ORM 7** currently supports Node.j
 ### Migrations
 
 `pnpm migrate:deploy` runs `scripts/migrate-deploy.mjs`, which sets `DATABASE_URL` for each Prisma package. To run Prisma CLI directly inside a package, create that package’s `.env` with a single `DATABASE_URL` (see each package’s `.env.example`).
+
+## Run services
+
+From the **repository root**, copy `.env.example` to `.env` (or rely on migrate scripts’ defaults for Postgres only). Ensure `pnpm prisma:generate` and `pnpm migrate:deploy` have been run and `pnpm db:up` is healthy.
+
+**Start the wallet service before the user service** (user creation calls wallet over gRPC).
+
+```bash
+# terminal 1
+pnpm dev:wallet
+
+# terminal 2
+pnpm dev:user
+```
+
+Ports default to **50052** (wallet) and **50051** (user); override with `WALLET_GRPC_PORT` / `USER_GRPC_PORT` in `.env`.
+
+If `nest start` is launched with a working directory other than `apps/*-service`, set `REPO_ROOT` to the monorepo root so `.proto` files resolve.
+
+## Example `grpcurl` calls
+
+Install [grpcurl](https://github.com/fullstorydev/grpcurl). Run from the repo root; replace `USER_ID` with the `id` returned from `CreateUser`.
+
+```bash
+set ROOT=%CD%
+grpcurl -plaintext -import-path "%ROOT%\packages\proto\proto" -proto user/v1/user.proto -d "{\"email\":\"alice@example.com\",\"name\":\"Alice\"}" localhost:50051 user.v1.UserService/CreateUser
+
+grpcurl -plaintext -import-path "%ROOT%\packages\proto\proto" -proto user/v1/user.proto -d "{\"userId\":\"USER_ID\"}" localhost:50051 user.v1.UserService/GetUserById
+
+grpcurl -plaintext -import-path "%ROOT%\packages\proto\proto" -proto wallet/v1/wallet.proto -d "{\"userId\":\"USER_ID\",\"idempotencyKey\":\"w1\"}" localhost:50052 wallet.v1.WalletService/CreateWallet
+
+grpcurl -plaintext -import-path "%ROOT%\packages\proto\proto" -proto wallet/v1/wallet.proto -d "{\"userId\":\"USER_ID\"}" localhost:50052 wallet.v1.WalletService/GetWallet
+
+grpcurl -plaintext -import-path "%ROOT%\packages\proto\proto" -proto wallet/v1/wallet.proto -d "{\"userId\":\"USER_ID\",\"amountMinorUnits\":1000,\"idempotencyKey\":\"c1\"}" localhost:50052 wallet.v1.WalletService/CreditWallet
+
+grpcurl -plaintext -import-path "%ROOT%\packages\proto\proto" -proto wallet/v1/wallet.proto -d "{\"userId\":\"USER_ID\",\"amountMinorUnits\":250,\"idempotencyKey\":\"d1\"}" localhost:50052 wallet.v1.WalletService/DebitWallet
+```
+
+On PowerShell, escape JSON differently, for example:
+
+```powershell
+grpcurl -plaintext -import-path "$PWD\packages\proto\proto" -proto user/v1/user.proto -d '{"email":"alice@example.com","name":"Alice"}' localhost:50051 user.v1.UserService/CreateUser
+```

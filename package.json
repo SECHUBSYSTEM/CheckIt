@@ -14,9 +14,11 @@
     "proto:generate": "pnpm --filter @packages/proto generate",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "migrate:user": "pnpm --filter @packages/prisma-user migrate:dev",
-    "migrate:wallet": "pnpm --filter @packages/prisma-wallet migrate:dev",
-    "migrate:deploy": "pnpm --filter @packages/prisma-user migrate:deploy && pnpm --filter @packages/prisma-wallet migrate:deploy",
-    "prisma:generate": "pnpm --filter @packages/prisma-user generate && pnpm --filter @packages/prisma-wallet generate"
+    "migrate:user": "node scripts/migrate-dev.mjs user",
+    "migrate:wallet": "node scripts/migrate-dev.mjs wallet",
+    "migrate:deploy": "node scripts/migrate-deploy.mjs",
+    "prisma:generate": "node scripts/prisma-generate.mjs",
+    "dev:wallet": "pnpm --filter @apps/wallet-service start:dev",
+    "dev:user": "pnpm --filter @apps/user-service start:dev"
   }
 }
